@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Реєстратор товарів</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            background-color: #f3f4f6;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        .preview-image {
+            max-height: 200px;
+            object-fit: contain;
+        }
+        .active-tab {
+            border-bottom: 3px solid #2563eb;
+            color: #2563eb;
+        }
+    </style>
+</head>
+<body class="p-0 md:p-4">
+
+    <!-- Навігація -->
+    <nav class="max-w-4xl mx-auto bg-white shadow-sm mb-6 sticky top-0 z-10">
+        <div class="flex border-b">
+            <button onclick="switchTab('add')" id="tab-add" class="flex-1 py-4 text-center font-bold text-gray-600 hover:bg-gray-50 active-tab transition-all">
+                Додати товар
+            </button>
+            <button onclick="switchTab('inventory')" id="tab-inventory" class="flex-1 py-4 text-center font-bold text-gray-600 hover:bg-gray-50 transition-all">
+                Склад (за терміном)
+            </button>
+        </div>
+    </nav>
+
+    <div class="max-w-4xl mx-auto px-4">
+        
+        <!-- СТОРІНКА 1: ФОРМА ДОДАВАННЯ -->
+        <div id="page-add" class="space-y-6">
+            <div class="bg-white rounded-2xl shadow-lg overflow-hidden">
+                <div class="bg-blue-600 p-6 text-white text-center">
+                    <h1 class="text-2xl font-bold uppercase tracking-wide">Реєстрація товару</h1>
+                </div>
+
+                <form id="productForm" class="p-6 space-y-6">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Штрих-код</label>
+                            <input type="text" id="barcode" required 
+                                class="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                                placeholder="482...">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Придатний до</label>
+                            <input type="date" id="expiryDate" required
+                                class="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Опис товару</label>
+                        <textarea id="description" rows="3" required
+                            class="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                            placeholder="Назва, категорія..."></textarea>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Фото товару</label>
+                        <div class="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-lg relative" id="dropzone">
+                            <div class="space-y-1 text-center" id="uploadPrompt">
+                                <svg class="mx-auto h-10 w-10 text-gray-400" stroke="currentColor" fill="none" viewBox="0 0 48 48">
+                                    <path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                                </svg>
+                                <p class="text-sm text-blue-600 font-medium">Зробити фото або вибрати файл</p>
+                            </div>
+                            <img id="imagePreview" class="hidden preview-image rounded-md" alt="Прев'ю">
+                            <input id="fileInput" type="file" accept="image/*" capture="environment" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer">
+                        </div>
+                    </div>
+
+                    <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 rounded-xl shadow-lg transition-all transform active:scale-95">
+                        Зберегти у базу
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        <!-- СТОРІНКА 2: СКЛАД (СОРТУВАННЯ ЗА ДАТОЮ) -->
+        <div id="page-inventory" class="hidden space-y-4">
+            <div class="bg-white rounded-2xl shadow-lg overflow-hidden">
+                <div class="p-4 bg-gray-50 border-b flex justify-between items-center">
+                    <h2 class="font-bold text-gray-700">Складські запаси</h2>
+                    <span class="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded-full font-bold">Всього: <span id="totalCount">0</span></span>
+                </div>
+                
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left">
+                        <thead class="bg-gray-100 text-gray-500 text-xs uppercase">
+                            <tr>
+                                <th class="px-4 py-3 border-b">Придатний до</th>
+                                <th class="px-4 py-3 border-b">Фото</th>
+                                <th class="px-4 py-3 border-b">Штрих-код / Опис</th>
+                                <th class="px-4 py-3 border-b text-right">Дія</th>
+                            </tr>
+                        </thead>
+                        <tbody id="inventoryList" class="divide-y divide-gray-200">
+                            <!-- Тут будуть відсортовані товари -->
+                        </tbody>
+                    </table>
+                </div>
+                <div id="emptyMessage" class="p-10 text-center text-gray-400">
+                    На складі поки немає товарів
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Повідомлення -->
+    <div id="toast" class="fixed bottom-10 left-1/2 transform -translate-x-1/2 bg-gray-800 text-white px-6 py-3 rounded-full shadow-2xl hidden z-50 transition-opacity">
+        Товар успішно додано!
+    </div>
+
+    <script>
+        // Завантаження товарів з LocalStorage при старті
+        let products = JSON.parse(localStorage.getItem('inventory_products')) || [];
+
+        const fileInput = document.getElementById('fileInput');
+        const imagePreview = document.getElementById('imagePreview');
+        const uploadPrompt = document.getElementById('uploadPrompt');
+        const productForm = document.getElementById('productForm');
+        const inventoryList = document.getElementById('inventoryList');
+        const emptyMessage = document.getElementById('emptyMessage');
+        const totalCountDisplay = document.getElementById('totalCount');
+        const toast = document.getElementById('toast');
+
+        let currentImageData = '';
+
+        // Оновлення LocalStorage
+        function saveToLocalStorage() {
+            localStorage.setItem('inventory_products', JSON.stringify(products));
+        }
+
+        // Перемикання вкладок
+        function switchTab(tab) {
+            document.getElementById('page-add').classList.toggle('hidden', tab !== 'add');
+            document.getElementById('page-inventory').classList.toggle('hidden', tab !== 'inventory');
+            
+            document.getElementById('tab-add').classList.toggle('active-tab', tab === 'add');
+            document.getElementById('tab-inventory').classList.toggle('active-tab', tab === 'inventory');
+
+            if (tab === 'inventory') renderInventory();
+        }
+
+        // Обробка фото
+        fileInput.addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(event) {
+                    currentImageData = event.target.result;
+                    imagePreview.src = currentImageData;
+                    imagePreview.classList.remove('hidden');
+                    uploadPrompt.classList.add('hidden');
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+
+        // Збереження
+        productForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+
+            const newProduct = {
+                id: Date.now(),
+                barcode: document.getElementById('barcode').value,
+                description: document.getElementById('description').value,
+                expiryDate: document.getElementById('expiryDate').value,
+                image: currentImageData || 'https://via.placeholder.com/100?text=No+Photo',
+                addedAt: new Date().toISOString()
+            };
+
+            products.push(newProduct);
+            saveToLocalStorage(); // Зберігаємо в LocalStorage
+            showToast();
+            
+            // Скидання форми
+            productForm.reset();
+            imagePreview.classList.add('hidden');
+            uploadPrompt.classList.remove('hidden');
+            currentImageData = '';
+        });
+
+        function showToast() {
+            toast.classList.remove('hidden');
+            setTimeout(() => toast.classList.add('hidden'), 2000);
+        }
+
+        // Відображення складу з сортуванням
+        function renderInventory() {
+            inventoryList.innerHTML = '';
+            
+            if (products.length === 0) {
+                emptyMessage.classList.remove('hidden');
+                totalCountDisplay.innerText = "0";
+                return;
+            }
+            emptyMessage.classList.add('hidden');
+            totalCountDisplay.innerText = products.length;
+
+            // Сортування: за датою (спочатку ті, що швидше псуються)
+            const sortedProducts = [...products].sort((a, b) => new Date(a.expiryDate) - new Date(b.expiryDate));
+
+            const today = new Date().setHours(0,0,0,0);
+
+            sortedProducts.forEach(product => {
+                const expiry = new Date(product.expiryDate);
+                const isExpired = expiry < today;
+                const formattedDate = expiry.toLocaleDateString('uk-UA');
+
+                const row = document.createElement('tr');
+                row.className = isExpired ? "bg-red-50" : "hover:bg-gray-50";
+                row.innerHTML = `
+                    <td class="px-4 py-4">
+                        <span class="text-sm font-bold ${isExpired ? 'text-red-600' : 'text-gray-900'}">
+                            ${formattedDate}
+                        </span>
+                        ${isExpired ? '<br><span class="text-[10px] text-red-500 font-bold uppercase">Термін минув!</span>' : ''}
+                    </td>
+                    <td class="px-4 py-4">
+                        <img src="${product.image}" class="h-12 w-12 object-cover rounded-lg shadow-sm border">
+                    </td>
+                    <td class="px-4 py-4">
+                        <div class="text-xs font-mono text-gray-400 mb-1">${product.barcode}</div>
+                        <div class="text-sm text-gray-700 font-medium">${product.description}</div>
+                    </td>
+                    <td class="px-4 py-4 text-right">
+                        <button onclick="deleteProduct(${product.id})" class="text-red-400 hover:text-red-600 p-2">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                        </button>
+                    </td>
+                `;
+                inventoryList.appendChild(row);
+            });
+        }
+
+        function deleteProduct(id) {
+            const modalOverlay = document.createElement('div');
+            modalOverlay.className = "fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4";
+            modalOverlay.innerHTML = `
+                <div class="bg-white p-6 rounded-2xl shadow-2xl max-w-sm w-full text-center">
+                    <h3 class="text-lg font-bold text-gray-800 mb-2">Видалити товар?</h3>
+                    <p class="text-gray-600 mb-6 italic">Цю дію неможливо буде скасувати.</p>
+                    <div class="flex gap-3">
+                        <button id="cancelDel" class="flex-1 px-4 py-3 bg-gray-100 text-gray-700 rounded-xl font-bold hover:bg-gray-200 transition-colors">Скасувати</button>
+                        <button id="confirmDel" class="flex-1 px-4 py-3 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 transition-colors">Видалити</button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(modalOverlay);
+
+            document.getElementById('cancelDel').onclick = () => modalOverlay.remove();
+            document.getElementById('confirmDel').onclick = () => {
+                products = products.filter(p => p.id !== id);
+                saveToLocalStorage(); // Оновлюємо LocalStorage після видалення
+                renderInventory();
+                modalOverlay.remove();
+            };
+        }
+
+        // Рендеримо лічильник при завантаженні
+        totalCountDisplay.innerText = products.length;
+    </script>
+</body>
+</html>
