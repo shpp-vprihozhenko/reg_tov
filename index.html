@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Реєстратор товарів + Камера</title>
+    <title>Реєстратор товарів + Автопошук</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/html5-qrcode"></script>
     
@@ -69,21 +69,22 @@
     <style>
         body { background-color: #f3f4f6; font-family: 'Segoe UI', sans-serif; }
         .active-tab { border-bottom: 3px solid #6366f1; color: #6366f1; }
-        #reader, #photoCamera { width: 100% !important; border-radius: 1rem; overflow: hidden; }
+        #reader { width: 100% !important; border-radius: 1rem; overflow: hidden; }
         video { width: 100% !important; border-radius: 1rem; }
-        /* Анімація для привернення уваги до критичних товарів */
-        .pulse-yellow {
-            animation: pulse-bg 2s infinite;
+        
+        .loading-shimmer {
+            background: linear-gradient(90deg, #f3f4f6 25%, #e5e7eb 50%, #f3f4f6 75%);
+            background-size: 200% 100%;
+            animation: shimmer 1.5s infinite;
         }
-        @keyframes pulse-bg {
-            0% { background-color: #facc15; }
-            50% { background-color: #fef08a; }
-            100% { background-color: #facc15; }
+        @keyframes shimmer {
+            0% { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
         }
     </style>
 </head>
 <body class="p-0 md:p-4">
-    <!-- Модальне вікно сканера штрих-коду -->
+    <!-- Модальне вікно сканера -->
     <div id="scannerModal" class="hidden fixed inset-0 bg-black bg-opacity-80 z-50 flex items-center justify-center p-4">
         <div class="bg-white w-full max-w-lg rounded-2xl overflow-hidden shadow-2xl">
             <div class="p-4 border-b flex justify-between items-center bg-gray-50">
@@ -94,21 +95,19 @@
         </div>
     </div>
 
-    <!-- Модальне вікно камери для фото товару -->
+    <!-- Модальне вікно камери -->
     <div id="cameraModal" class="hidden fixed inset-0 bg-black bg-opacity-90 z-50 flex flex-col items-center justify-center p-4">
         <div class="w-full max-w-lg bg-black rounded-2xl overflow-hidden relative">
             <video id="video" autoplay playsinline class="w-full"></video>
             <canvas id="canvas" class="hidden"></canvas>
-            
             <div class="absolute bottom-6 w-full flex justify-around items-center px-10">
                 <button onclick="closeCamera()" class="bg-white/20 text-white p-4 rounded-full">
                     <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12" stroke-width="2"/></svg>
                 </button>
                 <button onclick="takeSnapshot()" class="bg-white w-16 h-16 rounded-full border-4 border-gray-300 active:scale-90 transition-transform"></button>
-                <div class="w-14"></div> <!-- Spacer -->
+                <div class="w-14"></div>
             </div>
         </div>
-        <p class="text-white mt-4 text-sm opacity-70">Зробіть фото товару</p>
     </div>
 
     <nav class="max-w-4xl mx-auto bg-white shadow-sm mb-6 sticky top-0 z-20">
@@ -121,12 +120,12 @@
 
     <div class="max-w-4xl mx-auto px-4 pb-20">
         <div id="page-add" class="space-y-6">
-            <div class="bg-white rounded-2xl p-6 shadow-md">
+            <div class="bg-white rounded-2xl p-6 shadow-md border-t-4 border-indigo-500">
                 <form id="productForm" class="space-y-4">
                     <div>
                         <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Штрих-код</label>
                         <div class="flex gap-2">
-                            <input type="text" id="barcode" required class="flex-1 p-3 bg-gray-50 border rounded-lg outline-none focus:ring-2 focus:ring-indigo-500" placeholder="Скануйте код">
+                            <input type="text" id="barcode" required oninput="debouncedSearch()" class="flex-1 p-3 bg-gray-50 border rounded-lg outline-none focus:ring-2 focus:ring-indigo-500" placeholder="Скануйте або введіть">
                             <button type="button" onclick="startScanner()" class="bg-indigo-600 text-white p-3 rounded-lg shadow-md">
                                 <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M12 4v1m6 11h2m-6 0h-2v4m0-11v-3m4 3h3m-9 0h-3m3 0a2 2 0 012 2v2.5M3 10v3a2 2 0 002 2h3m11 0h3a2 2 0 002-2v-3M19 10V7a2 2 0 00-2-2h-3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
                             </button>
@@ -134,35 +133,39 @@
                     </div>
                     
                     <div>
-                        <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Термін придатності</label>
-                        <input type="date" id="expiryDate" required class="w-full p-3 bg-gray-50 border rounded-lg focus:ring-2 focus:ring-indigo-500">
+                        <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Назва та опис товару</label>
+                        <div class="relative">
+                            <textarea id="description" required rows="2" class="w-full p-3 bg-gray-50 border rounded-lg focus:ring-2 focus:ring-indigo-500 transition-all" placeholder="Назва товару підтягнеться автоматично..."></textarea>
+                            <div id="searchLoader" class="hidden absolute inset-0 bg-gray-50/80 flex items-center justify-center rounded-lg">
+                                <div class="flex items-center gap-2 text-indigo-600 text-sm font-bold">
+                                    <svg class="animate-spin h-5 w-5" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                                    Шукаємо назву...
+                                </div>
+                            </div>
+                        </div>
+                        <div id="searchSource" class="text-[10px] text-gray-400 mt-1 hidden italic">Дані з OpenFoodFacts</div>
                     </div>
 
-                    <div>
-                        <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Опис товару</label>
-                        <textarea id="description" required rows="2" class="w-full p-3 bg-gray-50 border rounded-lg focus:ring-2 focus:ring-indigo-500" placeholder="Назва товару..."></textarea>
-                    </div>
-                    
-                    <div class="space-y-2">
-                        <label class="block text-xs font-bold text-gray-500 uppercase">Фото товару</label>
-                        <div class="flex gap-2">
-                            <button type="button" onclick="openCamera()" class="flex-1 bg-gray-100 p-4 rounded-xl border-2 border-dashed border-gray-300 flex flex-col items-center justify-center hover:bg-gray-200 transition-colors">
-                                <svg class="w-8 h-8 text-gray-400 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"/><path d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" stroke-width="2"/></svg>
-                                <span class="text-xs font-bold text-indigo-600">Камера</span>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Термін придатності</label>
+                            <input type="date" id="expiryDate" required class="w-full p-3 bg-gray-50 border rounded-lg focus:ring-2 focus:ring-indigo-500">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Дії</label>
+                            <button type="button" onclick="openCamera()" class="w-full bg-gray-100 p-3 rounded-lg border flex items-center justify-center gap-2 text-indigo-600 font-bold hover:bg-gray-200">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"/><path d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" stroke-width="2"/></svg>
+                                Фото
                             </button>
-                            <label class="flex-1 bg-gray-100 p-4 rounded-xl border-2 border-dashed border-gray-300 flex flex-col items-center justify-center cursor-pointer hover:bg-gray-200 transition-colors">
-                                <svg class="w-8 h-8 text-gray-400 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" stroke-width="2"/></svg>
-                                <span class="text-xs font-bold text-indigo-600">Галерея</span>
-                                <input id="fileInput" type="file" accept="image/*" class="hidden">
-                            </label>
-                        </div>
-                        <div id="previewContainer" class="hidden relative mt-2">
-                            <img id="imagePreview" class="w-full max-h-64 object-cover rounded-xl shadow-md border">
-                            <button type="button" onclick="clearImage()" class="absolute top-2 right-2 bg-red-500 text-white rounded-full p-1 shadow-lg">&times;</button>
                         </div>
                     </div>
                     
-                    <button type="submit" class="w-full bg-indigo-600 text-white p-4 rounded-xl font-bold shadow-lg active:scale-95 transition-all">Зберегти в базу</button>
+                    <div id="previewContainer" class="hidden relative mt-2">
+                        <img id="imagePreview" class="w-full max-h-48 object-cover rounded-xl shadow-sm border">
+                        <button type="button" onclick="clearImage()" class="absolute top-2 right-2 bg-red-500 text-white rounded-full p-1 shadow-lg">&times;</button>
+                    </div>
+                    
+                    <button type="submit" class="w-full bg-indigo-600 text-white p-4 rounded-xl font-bold shadow-lg active:scale-95 transition-all">Зберегти на склад</button>
                 </form>
             </div>
         </div>
@@ -170,8 +173,8 @@
         <div id="page-inventory" class="hidden">
             <div class="bg-white rounded-2xl shadow-lg overflow-hidden">
                 <table class="w-full text-left">
-                    <thead class="bg-gray-50 text-gray-400 text-[10px] uppercase">
-                        <tr><th class="p-4">Придатний</th><th class="p-4">Фото</th><th class="p-4">Товар</th><th class="p-4"></th></tr>
+                    <thead class="bg-gray-100 text-gray-500 text-[10px] uppercase">
+                        <tr><th class="p-4">Термін</th><th class="p-4">Фото</th><th class="p-4">Товар</th><th class="p-4"></th></tr>
                     </thead>
                     <tbody id="inventoryList" class="divide-y divide-gray-100"></tbody>
                 </table>
@@ -185,26 +188,66 @@
         let currentImageData = '';
         let html5QrCode;
         let stream;
+        let searchTimeout;
 
-        // --- ФУНКЦІЇ ФОТО-КАМЕРИ ---
-        async function openCamera() {
+        // --- АВТОПОШУК ТОВАРУ ---
+        function debouncedSearch() {
+            clearTimeout(searchTimeout);
+            searchTimeout = setTimeout(fetchProductDetails, 800);
+        }
+
+        async function fetchProductDetails() {
+            const barcode = document.getElementById('barcode').value.trim();
+            if (barcode.length < 8) return;
+
+            const loader = document.getElementById('searchLoader');
+            const descArea = document.getElementById('description');
+            const sourceInfo = document.getElementById('searchSource');
+
+            loader.classList.remove('hidden');
+            
             try {
-                stream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { facingMode: "environment" }, 
-                    audio: false 
-                });
-                const video = document.getElementById('video');
-                video.srcObject = stream;
-                document.getElementById('cameraModal').classList.remove('hidden');
+                // Використовуємо Open Food Facts API (безкоштовно та відкрито)
+                const res = await fetch(`https://world.openfoodfacts.org/api/v0/product/${barcode}.json`);
+                const data = await res.json();
+
+                if (data.status === 1) {
+                    const p = data.product;
+                    // Пріоритет: Українська назва -> Загальна назва -> Назва бренду + Категорія
+                    const name = p.product_name_uk || p.product_name || p.generic_name || 
+                                 (p.brands ? `${p.brands} ${p.categories ? p.categories.split(',')[0] : ''}` : '');
+                    
+                    if (name) {
+                        descArea.value = name;
+                        sourceInfo.classList.remove('hidden');
+                        showToast("Товар знайдено!");
+                    }
+                    
+                    // Якщо в базі є фото, а ми ще не зробили своє - підтягуємо
+                    if (p.image_url && !currentImageData) {
+                        currentImageData = p.image_url;
+                        document.getElementById('imagePreview').src = p.image_url;
+                        document.getElementById('previewContainer').classList.remove('hidden');
+                    }
+                }
             } catch (err) {
-                alert("Не вдалося відкрити камеру: " + err.message);
+                console.error("Помилка пошуку:", err);
+            } finally {
+                loader.classList.add('hidden');
             }
         }
 
+        // --- ФУНКЦІЇ КАМЕРИ ---
+        async function openCamera() {
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+                document.getElementById('video').srcObject = stream;
+                document.getElementById('cameraModal').classList.remove('hidden');
+            } catch (err) { alert("Камера недоступна"); }
+        }
+
         function closeCamera() {
-            if (stream) {
-                stream.getTracks().forEach(track => track.stop());
-            }
+            if (stream) stream.getTracks().forEach(t => t.stop());
             document.getElementById('cameraModal').classList.add('hidden');
         }
 
@@ -213,15 +256,11 @@
             const canvas = document.getElementById('canvas');
             canvas.width = video.videoWidth;
             canvas.height = video.videoHeight;
-            const ctx = canvas.getContext('2d');
-            ctx.drawImage(video, 0, 0);
-            
-            currentImageData = canvas.toDataURL('image/jpeg', 0.7);
+            canvas.getContext('2d').drawImage(video, 0, 0);
+            currentImageData = canvas.toDataURL('image/jpeg', 0.6);
             document.getElementById('imagePreview').src = currentImageData;
             document.getElementById('previewContainer').classList.remove('hidden');
-            
             closeCamera();
-            showToast("Фото зроблено!");
         }
 
         function clearImage() {
@@ -229,7 +268,7 @@
             document.getElementById('previewContainer').classList.add('hidden');
         }
 
-        // --- СКАНЕР ШТРИХ-КОДІВ ---
+        // --- СКАНЕР ---
         async function startScanner() {
             document.getElementById('scannerModal').classList.remove('hidden');
             html5QrCode = new Html5Qrcode("reader");
@@ -237,7 +276,7 @@
                 await html5QrCode.start({ facingMode: "environment" }, { fps: 10, qrbox: 250 }, (text) => {
                     document.getElementById('barcode').value = text;
                     stopScanner();
-                    showToast("Код: " + text);
+                    fetchProductDetails(); // Шукаємо після сканування
                 });
             } catch (err) { stopScanner(); }
         }
@@ -250,37 +289,25 @@
             }
         }
 
-        // --- ОБРОБКА ФОРМИ ---
-        document.getElementById('fileInput').addEventListener('change', e => {
-            const file = e.target.files[0];
-            if (file) {
-                const reader = new FileReader();
-                reader.onload = ev => {
-                    currentImageData = ev.target.result;
-                    document.getElementById('imagePreview').src = currentImageData;
-                    document.getElementById('previewContainer').classList.remove('hidden');
-                };
-                reader.readAsDataURL(file);
-            }
-        });
-
+        // --- ФОРМА ТА ТАБИ ---
         document.getElementById('productForm').addEventListener('submit', async e => {
             e.preventDefault();
             const btn = e.target.querySelector('button[type="submit"]');
             btn.disabled = true;
-            btn.innerText = "Збереження...";
+            btn.innerText = "Зберігаємо...";
 
             await window.saveProduct({
                 barcode: document.getElementById('barcode').value,
                 description: document.getElementById('description').value,
                 expiryDate: document.getElementById('expiryDate').value,
-                image: currentImageData || 'https://via.placeholder.com/150?text=No+Photo'
+                image: currentImageData || 'https://via.placeholder.com/150?text=Немає+фото'
             });
 
             e.target.reset();
             clearImage();
+            document.getElementById('searchSource').classList.add('hidden');
             btn.disabled = false;
-            btn.innerText = "Зберегти в базу";
+            btn.innerText = "Зберегти на склад";
         });
 
         function switchTab(tab) {
@@ -294,46 +321,30 @@
         function renderInventory() {
             const list = document.getElementById('inventoryList');
             list.innerHTML = '';
-            
             const today = new Date();
-            today.setHours(0, 0, 0, 0);
-
-            const inSevenDays = new Date();
+            today.setHours(0,0,0,0);
+            const inSevenDays = new Date(today);
             inSevenDays.setDate(today.getDate() + 7);
-            inSevenDays.setHours(23, 59, 59, 999);
-            
+
             window.products.sort((a,b) => new Date(a.expiryDate) - new Date(b.expiryDate)).forEach(p => {
-                const expiryDate = new Date(p.expiryDate);
-                const isExpired = expiryDate < today;
-                const isExpiringSoon = expiryDate <= inSevenDays;
+                const exp = new Date(p.expiryDate);
+                const isUrgent = exp <= inSevenDays;
+                const isExpired = exp < today;
 
                 const row = document.createElement('tr');
+                row.className = isUrgent ? (isExpired ? "bg-red-200" : "bg-yellow-400 font-bold") : "hover:bg-gray-50";
                 
-                // Яскраве виділення для товарів з терміном < 7 днів
-                if (isExpiringSoon) {
-                    row.className = "bg-yellow-400 hover:bg-yellow-500 transition-colors font-semibold";
-                    if (isExpired) {
-                        row.classList.add('bg-red-100'); // Прострочені можна додатково підсвітити інакше
-                        row.className = "bg-red-200 hover:bg-red-300 transition-colors font-bold";
-                    }
-                } else {
-                    row.className = "hover:bg-gray-50 transition-colors";
-                }
-
                 row.innerHTML = `
                     <td class="p-4 text-xs">
-                        <span class="${isExpired ? 'bg-red-600 text-white px-2 py-1 rounded-md' : 'text-gray-900'}">
-                            ${p.expiryDate}
-                        </span>
-                        ${isExpired ? '<div class="text-[8px] text-red-700 mt-1 uppercase">Прострочено!</div>' : ''}
+                        <span class="${isExpired ? 'text-red-700 underline' : ''}">${p.expiryDate}</span>
                     </td>
                     <td class="p-4"><img src="${p.image}" class="w-12 h-12 object-cover rounded-lg border-2 border-white shadow-sm"></td>
                     <td class="p-4">
-                        <div class="text-[10px] ${isExpiringSoon ? 'text-gray-800' : 'text-gray-400'} font-mono">${p.barcode}</div>
+                        <div class="text-[9px] opacity-60 font-mono">${p.barcode}</div>
                         <div class="text-sm line-clamp-2">${p.description}</div>
                     </td>
                     <td class="p-4 text-right">
-                        <button onclick="window.deleteFromCloud('${p.id}')" class="${isExpiringSoon ? 'text-gray-800' : 'text-gray-300'} hover:text-red-600">
+                        <button onclick="window.deleteFromCloud('${p.id}')" class="text-gray-400 hover:text-red-600 p-2">
                             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" stroke-width="2" stroke-linecap="round"/></svg>
                         </button>
                     </td>
@@ -345,7 +356,7 @@
         function showToast(m) {
             const t = document.getElementById('toast');
             t.innerText = m; t.classList.remove('hidden');
-            setTimeout(() => t.classList.add('hidden'), 3000);
+            setTimeout(() => t.classList.add('hidden'), 2500);
         }
     </script>
 </body>
