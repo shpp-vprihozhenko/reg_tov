@@ -3,20 +3,24 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Реєстратор товарів (Спільна база)</title>
+    <title>Реєстратор товарів (Спільний Склад)</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Firebase SDK -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, collection, doc, addDoc, onSnapshot, query, deleteDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, doc, addDoc, onSnapshot, deleteDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // Глобальні змінні середовища
-        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
-            apiKey: "", authDomain: "", projectId: "", storageBucket: "", messagingSenderId: "", appId: ""
+        // === ВАШІ КЛЮЧІ ===
+        const firebaseConfig = {
+            apiKey: "AIzaSyDkysW3a6iWFfJ2C2lav44czx4XVRC0TOs",
+            authDomain: "p1pizza-byl0wd.firebaseapp.com",
+            projectId: "p1pizza-byl0wd",
+            storageBucket: "p1pizza-byl0wd.appspot.com",
+            messagingSenderId: "915455456710",
+            appId: "1:915455456710:web:76d0ad9339309d3319aec7"
         };
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'inventory-app';
 
+        // Ініціалізація Firebase
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
         const db = getFirestore(app);
@@ -24,188 +28,191 @@
         let currentUser = null;
         window.products = [];
 
-        // Авторизація (потрібна для доступу до БД)
-        const initAuth = async () => {
-            try {
-                // Пріоритет на використання кастомного токена, якщо він наданий
-                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                    await signInWithCustomToken(auth, __initial_auth_token);
-                } else {
-                    await signInAnonymously(auth);
-                }
-            } catch (error) {
-                console.error("Помилка авторизації:", error);
-            }
-        };
-
+        // Відстеження стану авторизації
         onAuthStateChanged(auth, (user) => {
+            const statusEl = document.getElementById('authStatus');
+            const errorOverlay = document.getElementById('errorOverlay');
+            
             if (user) {
                 currentUser = user;
-                const statusEl = document.getElementById('authStatus');
-                if (statusEl) {
-                    statusEl.innerText = "Загальна база онлайн";
-                    statusEl.classList.replace('text-gray-400', 'text-green-500');
-                }
-                subscribeToPublicProducts();
+                statusEl.innerText = "База онлайн (Pizza Project)";
+                statusEl.classList.replace('text-gray-400', 'text-green-500');
+                if (errorOverlay) errorOverlay.classList.add('hidden');
+                subscribeToProducts();
+            } else {
+                signInAnonymously(auth).catch(err => {
+                    console.error("Помилка входу:", err);
+                    statusEl.innerText = "Помилка доступу";
+                    statusEl.classList.replace('text-gray-400', 'text-red-500');
+                    
+                    // Показуємо підказку користувачу, якщо анонімний вхід вимкнено
+                    if (err.code === 'auth/admin-restricted-operation') {
+                        document.getElementById('errorMsg').innerText = "Анонімний вхід вимкнено в консолі Firebase. Увімкніть його в меню Authentication -> Sign-in method.";
+                        errorOverlay.classList.remove('hidden');
+                    }
+                });
             }
         });
 
-        initAuth();
-
-        // Підписка на СПІЛЬНУ колекцію товарів
-        function subscribeToPublicProducts() {
-            if (!currentUser) return;
-            
-            // Використовуємо PUBLIC шлях для загального доступу всіх користувачів
-            const q = collection(db, 'artifacts', appId, 'public', 'data', 'products');
-            
+        // Підписка на оновлення в реальному часі
+        function subscribeToProducts() {
+            const q = collection(db, 'public_products');
             onSnapshot(q, (snapshot) => {
-                window.products = snapshot.docs.map(doc => ({
-                    id: doc.id,
-                    ...doc.data()
-                }));
+                window.products = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                 renderInventory();
-                updateTotalCount();
             }, (error) => {
-                console.error("Помилка отримання даних:", error);
-                showToast("Помилка синхронізації");
+                console.error("Помилка Firestore:", error);
+                if (error.code === 'permission-denied') {
+                    document.getElementById('errorMsg').innerText = "Доступ до бази даних Firestore заборонено правилами (Rules).";
+                    document.getElementById('errorOverlay').classList.remove('hidden');
+                }
             });
         }
 
-        // Функція збереження в загальну хмару
+        // Функції для роботи з даними
         window.saveProduct = async (productData) => {
             if (!currentUser) return;
             try {
-                await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'products'), {
+                await addDoc(collection(db, 'public_products'), {
                     ...productData,
-                    addedBy: currentUser.uid,
                     createdAt: serverTimestamp()
                 });
-                showToast("Додано для всіх користувачів!");
-            } catch (error) {
-                console.error("Помилка збереження:", error);
-                alert("Не вдалося зберегти в спільну базу.");
+                showToast("Товар успішно додано!");
+            } catch (err) {
+                console.error("Помилка збереження:", err);
             }
         };
 
-        // Функція видалення (видаляє для всіх)
         window.deleteFromCloud = async (id) => {
-            if (!currentUser) return;
-            try {
-                await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'products', id));
-                showToast("Видалено із загальної бази");
-            } catch (error) {
-                console.error("Помилка видалення:", error);
+            if (confirm("Видалити цей запис для всіх?")) {
+                await deleteDoc(doc(db, 'public_products', id));
+                showToast("Видалено");
             }
         };
-
     </script>
     <style>
-        body { background-color: #f3f4f6; font-family: 'Segoe UI', sans-serif; }
+        body { background-color: #f3f4f6; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
         .active-tab { border-bottom: 3px solid #6366f1; color: #6366f1; }
-        .preview-image { max-height: 200px; object-fit: contain; }
+        .card-shadow { box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06); }
     </style>
 </head>
 <body class="p-0 md:p-4">
+    <!-- Повідомлення про помилку налаштувань -->
+    <div id="errorOverlay" class="hidden fixed inset-0 bg-red-600 bg-opacity-90 z-50 flex items-center justify-center p-6 text-white text-center">
+        <div class="max-w-md">
+            <svg class="w-16 h-16 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <h2 class="text-xl font-bold mb-2">Потрібне налаштування Firebase</h2>
+            <p id="errorMsg" class="mb-6 opacity-90"></p>
+            <a href="https://console.firebase.google.com/" target="_blank" class="inline-block bg-white text-red-600 px-6 py-2 rounded-lg font-bold">Відкрити консоль Firebase</a>
+        </div>
+    </div>
 
-    <!-- Навігація -->
-    <nav class="max-w-4xl mx-auto bg-white shadow-sm mb-6 sticky top-0 z-10">
+    <nav class="max-w-4xl mx-auto bg-white shadow-sm mb-6 sticky top-0 z-20">
         <div class="flex border-b">
-            <button onclick="switchTab('add')" id="tab-add" class="flex-1 py-4 text-center font-bold text-gray-600 hover:bg-gray-50 active-tab transition-all">
-                Додати товар
-            </button>
-            <button onclick="switchTab('inventory')" id="tab-inventory" class="flex-1 py-4 text-center font-bold text-gray-600 hover:bg-gray-50 transition-all">
-                Загальний склад
-            </button>
+            <button onclick="switchTab('add')" id="tab-add" class="flex-1 py-4 text-center font-bold text-gray-600 active-tab transition-all">Додати товар</button>
+            <button onclick="switchTab('inventory')" id="tab-inventory" class="flex-1 py-4 text-center font-bold text-gray-600 transition-all">Весь склад</button>
         </div>
         <div class="px-4 py-1 text-[10px] text-right text-gray-400" id="authStatus">Підключення...</div>
     </nav>
 
     <div class="max-w-4xl mx-auto px-4 pb-20">
-        
-        <!-- СТОРІНКА 1: ДОДАВАННЯ -->
+        <!-- СТОРІНКА ДОДАВАННЯ -->
         <div id="page-add" class="space-y-6">
-            <div class="bg-white rounded-2xl shadow-lg overflow-hidden">
-                <div class="bg-indigo-600 p-6 text-white text-center">
-                    <h1 class="text-2xl font-bold uppercase tracking-wide">Спільний Реєстратор</h1>
-                    <p class="text-xs opacity-80 mt-1">Товари бачать усі користувачі</p>
-                </div>
-
-                <form id="productForm" class="p-6 space-y-6">
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Штрих-код</label>
-                            <input type="text" id="barcode" required class="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none" placeholder="Скануйте або введіть">
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Придатний до</label>
-                            <input type="date" id="expiryDate" required class="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none">
-                        </div>
-                    </div>
-
+            <div class="bg-white rounded-2xl p-6 card-shadow">
+                <form id="productForm" class="space-y-4">
                     <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-1">Назва та опис</label>
-                        <textarea id="description" rows="3" required class="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none" placeholder="Що це за товар?"></textarea>
+                        <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Штрих-код</label>
+                        <input type="text" id="barcode" required class="w-full p-3 bg-gray-50 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="Введіть або скануйте">
                     </div>
-
                     <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-1">Фото (бачитимуть усі)</label>
-                        <div class="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-lg relative">
-                            <div id="uploadPrompt" class="space-y-1 text-center">
-                                <svg class="mx-auto h-10 w-10 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 48 48"><path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg>
-                                <p class="text-sm text-indigo-600 font-medium">Зробити фото товару</p>
-                            </div>
-                            <img id="imagePreview" class="hidden preview-image rounded-md">
-                            <input id="fileInput" type="file" accept="image/*" capture="environment" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer">
-                        </div>
+                        <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Термін придатності</label>
+                        <input type="date" id="expiryDate" required class="w-full p-3 bg-gray-50 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none">
                     </div>
-
-                    <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 rounded-xl shadow-lg transition-all transform active:scale-95">
-                        Додати в спільну базу
-                    </button>
+                    <div>
+                        <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Опис товару</label>
+                        <textarea id="description" required rows="2" class="w-full p-3 bg-gray-50 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="Назва, вага, категорія..."></textarea>
+                    </div>
+                    
+                    <div class="border-2 border-dashed border-gray-300 p-6 text-center rounded-xl relative hover:bg-gray-50 transition-colors">
+                        <div id="upContent">
+                            <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"/><path d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                            <p class="mt-1 text-sm text-indigo-600 font-semibold">Додати фото</p>
+                        </div>
+                        <img id="imagePreview" class="hidden mx-auto max-h-48 rounded-lg shadow-md">
+                        <input id="fileInput" type="file" accept="image/*" capture="environment" class="absolute inset-0 opacity-0 cursor-pointer">
+                    </div>
+                    
+                    <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white p-4 rounded-xl font-bold shadow-lg transform active:scale-95 transition-all">Зберегти в загальну базу</button>
                 </form>
             </div>
         </div>
 
-        <!-- СТОРІНКА 2: СКЛАД -->
-        <div id="page-inventory" class="hidden space-y-4">
+        <!-- СТОРІНКА СКЛАДУ -->
+        <div id="page-inventory" class="hidden">
             <div class="bg-white rounded-2xl shadow-lg overflow-hidden">
-                <div class="p-4 bg-gray-50 border-b flex justify-between items-center">
-                    <h2 class="font-bold text-gray-700">Загальний список</h2>
-                    <span class="bg-indigo-100 text-indigo-800 text-xs px-2 py-1 rounded-full font-bold">Всього товарів: <span id="totalCount">0</span></span>
-                </div>
-                
                 <div class="overflow-x-auto">
-                    <table class="w-full text-left">
-                        <thead class="bg-gray-100 text-gray-500 text-xs uppercase">
+                    <table class="w-full text-left border-collapse">
+                        <thead class="bg-gray-50 text-gray-500 text-[10px] uppercase tracking-wider">
                             <tr>
-                                <th class="px-4 py-3">Термін</th>
-                                <th class="px-4 py-3">Фото</th>
-                                <th class="px-4 py-3">Інфо</th>
-                                <th class="px-4 py-3 text-right">Дія</th>
+                                <th class="p-4">Придатний</th>
+                                <th class="p-4">Фото</th>
+                                <th class="p-4">Товар</th>
+                                <th class="p-4"></th>
                             </tr>
                         </thead>
-                        <tbody id="inventoryList" class="divide-y divide-gray-200"></tbody>
+                        <tbody id="inventoryList" class="divide-y divide-gray-100">
+                            <tr><td colspan="4" class="p-10 text-center text-gray-400">Синхронізація...</td></tr>
+                        </tbody>
                     </table>
                 </div>
-                <div id="emptyMessage" class="p-10 text-center text-gray-400 italic">Синхронізація з хмарою...</div>
             </div>
         </div>
     </div>
-
-    <div id="toast" class="fixed bottom-10 left-1/2 transform -translate-x-1/2 bg-gray-900 text-white px-6 py-3 rounded-full shadow-2xl hidden z-50 transition-all duration-300"></div>
+    
+    <div id="toast" class="fixed bottom-8 left-1/2 transform -translate-x-1/2 bg-gray-900 text-white px-6 py-3 rounded-full shadow-2xl hidden z-50 transition-all"></div>
 
     <script>
-        const fileInput = document.getElementById('fileInput');
-        const imagePreview = document.getElementById('imagePreview');
-        const uploadPrompt = document.getElementById('uploadPrompt');
-        const productForm = document.getElementById('productForm');
-        const inventoryList = document.getElementById('inventoryList');
-        const emptyMessage = document.getElementById('emptyMessage');
-        const totalCountDisplay = document.getElementById('totalCount');
-        const toast = document.getElementById('toast');
-
         let currentImageData = '';
+        const fileInput = document.getElementById('fileInput');
+        const imgPrev = document.getElementById('imagePreview');
+        const upContent = document.getElementById('upContent');
+        
+        fileInput.addEventListener('change', e => {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = ev => {
+                    currentImageData = ev.target.result;
+                    imgPrev.src = currentImageData;
+                    imgPrev.classList.remove('hidden');
+                    upContent.classList.add('hidden');
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+
+        document.getElementById('productForm').addEventListener('submit', async e => {
+            e.preventDefault();
+            const btn = e.target.querySelector('button');
+            btn.disabled = true;
+            btn.innerText = "Збереження...";
+
+            const data = {
+                barcode: document.getElementById('barcode').value,
+                description: document.getElementById('description').value,
+                expiryDate: document.getElementById('expiryDate').value,
+                image: currentImageData || 'https://via.placeholder.com/150?text=No+Photo'
+            };
+
+            await window.saveProduct(data);
+
+            e.target.reset();
+            imgPrev.classList.add('hidden');
+            upContent.classList.remove('hidden');
+            currentImageData = '';
+            btn.disabled = false;
+            btn.innerText = "Зберегти в загальну базу";
+        });
 
         function switchTab(tab) {
             document.getElementById('page-add').classList.toggle('hidden', tab !== 'add');
@@ -215,108 +222,48 @@
             if (tab === 'inventory') renderInventory();
         }
 
-        fileInput.addEventListener('change', function(e) {
-            const file = e.target.files[0];
-            if (file) {
-                const reader = new FileReader();
-                reader.onload = (ev) => {
-                    currentImageData = ev.target.result;
-                    imagePreview.src = currentImageData;
-                    imagePreview.classList.remove('hidden');
-                    uploadPrompt.classList.add('hidden');
-                };
-                reader.readAsDataURL(file);
-            }
-        });
-
-        productForm.addEventListener('submit', async function(e) {
-            e.preventDefault();
-            const btn = e.target.querySelector('button');
-            const originalText = btn.innerText;
-            btn.disabled = true;
-            btn.innerText = "Збереження...";
-
-            const data = {
-                barcode: document.getElementById('barcode').value,
-                description: document.getElementById('description').value,
-                expiryDate: document.getElementById('expiryDate').value,
-                image: currentImageData || 'https://via.placeholder.com/100?text=No+Photo'
-            };
-            
-            await window.saveProduct(data);
-            
-            productForm.reset();
-            imagePreview.classList.add('hidden');
-            uploadPrompt.classList.remove('hidden');
-            currentImageData = '';
-            btn.disabled = false;
-            btn.innerText = originalText;
-        });
-
         function renderInventory() {
-            inventoryList.innerHTML = '';
-            const list = window.products || [];
+            const list = document.getElementById('inventoryList');
+            list.innerHTML = '';
             
-            if (list.length === 0) {
-                emptyMessage.classList.remove('hidden');
-                emptyMessage.innerText = "База порожня";
+            if (!window.products || window.products.length === 0) {
+                list.innerHTML = '<tr><td colspan="4" class="p-10 text-center text-gray-400">Склад порожній</td></tr>';
                 return;
             }
-            emptyMessage.classList.add('hidden');
 
-            const sorted = [...list].sort((a, b) => new Date(a.expiryDate) - new Date(b.expiryDate));
-            const today = new Date().setHours(0,0,0,0);
+            const today = new Date().toISOString().split('T')[0];
 
-            sorted.forEach(p => {
-                const isExpired = new Date(p.expiryDate) < today;
+            window.products.sort((a,b) => new Date(a.expiryDate) - new Date(b.expiryDate)).forEach(p => {
+                const isExpired = p.expiryDate < today;
                 const row = document.createElement('tr');
-                row.className = isExpired ? "bg-red-50" : "hover:bg-gray-50 transition-colors";
+                row.className = isExpired ? "bg-red-50" : "hover:bg-gray-50";
                 row.innerHTML = `
-                    <td class="px-4 py-4">
-                        <span class="text-xs font-bold ${isExpired ? 'text-red-600' : 'text-gray-900'}">
-                            ${new Date(p.expiryDate).toLocaleDateString('uk-UA')}
-                        </span>
+                    <td class="p-4">
+                        <span class="text-xs font-bold ${isExpired ? 'text-red-600' : 'text-gray-900'}">${p.expiryDate}</span>
                     </td>
-                    <td class="px-4 py-4">
-                        <img src="${p.image}" class="h-12 w-12 object-cover rounded-lg shadow-sm border border-gray-200">
+                    <td class="p-4">
+                        <img src="${p.image}" class="w-12 h-12 object-cover rounded-lg border shadow-sm">
                     </td>
-                    <td class="px-4 py-4">
-                        <div class="text-[10px] font-mono text-gray-400 mb-1">${p.barcode}</div>
+                    <td class="p-4">
+                        <div class="text-[10px] text-gray-400 font-mono">${p.barcode}</div>
                         <div class="text-sm font-medium text-gray-800 line-clamp-2">${p.description}</div>
                     </td>
-                    <td class="px-4 py-4 text-right">
-                        <button onclick="deleteProduct('${p.id}')" class="text-red-300 hover:text-red-600 transition-colors">
+                    <td class="p-4 text-right">
+                        <button onclick="window.deleteFromCloud('${p.id}')" class="text-gray-300 hover:text-red-500 transition-colors p-2">
                             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
                         </button>
                     </td>
                 `;
-                inventoryList.appendChild(row);
+                list.appendChild(row);
             });
         }
 
-        window.deleteProduct = async (id) => {
-            if (confirm("Видалити цей товар для всіх користувачів?")) {
-                await window.deleteFromCloud(id);
-            }
-        };
-
-        function updateTotalCount() {
-            const countEl = document.getElementById('totalCount');
-            if (countEl) countEl.innerText = window.products.length;
+        function showToast(m) {
+            const t = document.getElementById('toast');
+            t.innerText = m;
+            t.classList.remove('hidden');
+            setTimeout(() => t.classList.add('hidden'), 3000);
         }
-
-        function showToast(msg) {
-            toast.innerText = msg;
-            toast.classList.remove('hidden');
-            toast.classList.add('opacity-100');
-            setTimeout(() => {
-                toast.classList.add('hidden');
-            }, 2500);
-        }
-
-        window.onload = () => {
-             console.log("Додаток готовий до роботи");
-        };
     </script>
 </body>
 </html>
